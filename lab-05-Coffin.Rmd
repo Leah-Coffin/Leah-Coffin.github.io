@@ -1,0 +1,384 @@
+---
+title: "Lab-05 Predicting MHV Change 200-2010"
+author: "Leah Coffin" 
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: readable
+    highlight: tango
+    toc: true
+    self_contained: false
+    number_sections: false
+    css: textbook.css
+---
+
+```{r}
+library( dplyr )
+library( knitr )
+library( pander )
+library( stargazer )
+library( scales )
+
+set.seed( 1234 )
+```
+```{r}
+s.type <- "html"  
+
+```
+
+
+##Data
+
+```{r}
+
+URL1 <- "https://github.com/DS4PS/cpp-529-fall-2020/raw/main/LABS/data/rodeo/LTDB-2000.rds"
+d1 <- readRDS( gzcon( url( URL1 ) ) )
+
+URL2 <- "https://github.com/DS4PS/cpp-529-fall-2020/raw/main/LABS/data/rodeo/LTDB-2010.rds"
+d2 <- readRDS( gzcon( url( URL2 ) ) )
+
+URLmd <- "https://github.com/DS4PS/cpp-529-fall-2020/raw/main/LABS/data/rodeo/LTDB-META-DATA.rds"
+md <- readRDS( gzcon( url( URLmd ) ) )
+
+d1 <- select( d1, - year )
+d2 <- select( d2, - year )
+
+d <- merge( d1, d2, by="tractid" )
+d <- merge( d, md, by="tractid" )
+```
+
+```{r}
+table( d$urban )
+
+```
+
+```{r}
+d <- filter( d, urban == "urban" )
+
+```
+
+
+```{r}
+          
+          
+d <- select( d, tractid, 
+             mhmval00, mhmval12, 
+             hinc00, 
+             hu00, vac00, own00, rent00, h30old00,
+             empclf00, clf00, unemp00, prof00,  
+             dpov00, npov00, hinc00,
+             ag25up00, hs00, col00,
+             pop00.x, nhwht00, nhblk00, hisp00, asian00,
+             cbsa, cbsaname )
+
+ 
+d <- 
+  d %>%
+  mutate( # percent white in 2000
+          p.white = 100 * nhwht00 / pop00.x,
+          # percent black in 2000
+          p.black = 100 * nhblk00 / pop00.x,
+          # percent hispanic in 2000
+          p.hisp = 100 * hisp00 / pop00.x, 
+          # percent asian in 2000
+          p.asian = 100 * asian00 / pop00.x,
+          # percent high school grads by age 25 in 2000 
+          p.hs = 100 * (hs00+col00) / ag25up00,
+          # percent pop with college degree in 2000
+          p.col = 100 * col00 / ag25up00,
+          # percent employed in professional fields in 2000
+          p.prof = 100 * prof00 / empclf00,
+          # percent unemployment  in 2000
+          p.unemp = 100 * unemp00 / clf00,
+          # percent of housing lots in tract that are vacant in 2000
+          p.vacant = 100 * vac00 / hu00,
+          # dollar change in median home value 2000 to 2010 
+          pov.rate = 100 * npov00 / dpov00 )
+
+
+# adjust 2000 home values for inflation 
+mhv.00 <- d$mhmval00 * 1.28855  
+mhv.10 <- d$mhmval12
+
+# change in MHV in dollars
+mhv.change <- mhv.10 - mhv.00
+
+
+# drop low 2000 median home values
+# to avoid unrealistic growth rates.
+#
+# tracts with homes that cost less than
+# $1,000 are outliers
+mhv.00[ mhv.00 < 1000 ] <- NA
+
+# change in MHV in percent
+mhv.growth <- 100 * ( mhv.change / mhv.00 )
+
+d$mhv.00 <- mhv.00
+d$mhv.10 <- mhv.10
+d$mhv.change <- mhv.change
+d$mhv.growth <- mhv.growth 
+
+head(d)
+          
+```
+
+```{r}
+hist( mhv.00, breaks=200, xlim=c(0,500000), 
+      col="gray20", border="white",
+      axes=F, 
+      xlab="MHV (median = $138k)",
+      ylab="",
+      main="Median Home Value in 2000 (2010 US dollars)" )
+
+axis( side=1, at=seq(0,500000,100000), 
+      labels=c("$0","$100k","$200k","$300k","$400k","$500k") )
+
+abline( v=median( mhv.00, na.rm=T ), col="orange", lwd=3 )
+```
+
+
+##Part 1 Select Three Independent Variables
+
+```{r}
+colnames(d)
+```
+
+    The three variables I have selected are:
+    
+    p.white -Higher proportion of white residents will indicate less diversity and predict a larger increase in home value between 2000 and 2010
+    
+    p.prof -Higher proportion of persons professionally employed indicates greater capital and will predict a larger increase in home value between 2000 and 2010
+    
+    p.vacant -Lower proportions of vacant property and land indicates an area in high demand will predict a larger increase in home value between 2000 and 2010
+
+
+
+
+##Part 2 Variable Skew
+
+
+```{r}
+par( mfrow=c(1,2) )
+
+hist( d$p.white, breaks=50, col="gray20", border="white",
+      yaxt="n", xlab="", ylab="", main="Proportion of White Ethnicity")
+hist( log(d$p.white+1), breaks=20, col="gray20", border="white",
+      yaxt="n", xlab="", ylab="", main="Proportion of White Ethnicity (logged)")
+
+```
+
+    Log transformation for p.white does not appear to be needed.  I reduced the bins to 20 to attempt to address the skew.
+
+
+
+```{r}
+par( mfrow=c(1,2) )
+
+hist( d$p.prof, breaks=50, col="gray20", border="white",
+      yaxt="n", xlab="", ylab="", main="Proportion of Professionals")
+hist( log(d$p.prof+1), breaks=50, col="gray20", border="white",
+      yaxt="n", xlab="", ylab="", main="Proportion of Professionals (logged)")
+```
+
+    Log transformation for p.prof does not appear to be needed.
+
+
+```{r}
+par( mfrow=c(1,2) )
+
+hist( d$p.vacant, breaks=50, col="gray20", border="white",
+      yaxt="n", xlab="", ylab="", main="Vacant")
+hist( log(d$p.vacant+1), breaks=50, col="gray20", border="white",
+      yaxt="n", xlab="", ylab="", main="Vacant (logged)")
+```
+
+    p.vacant is skewed; I have applied a log transformation to account for the skew.
+
+
+##Part 3 Multicollinearity
+
+    Multicollinearity happens when there is high correlation between two or more variables selected, meaning that it is more difficult to say which independent variable is having an effect on the dependent variable.  I do not anticipate that the variables I’ve selected will be affected by multicollinearity because I have selected three variables that measure different things; ethnicity, income and land vacancy.
+    If multicollinearity exists we would expect to see an increase in standard errors and the slope moving towrds the null.  By removing one of variables you will see larger slope and statistical significance with the remaining variable.
+    
+
+  
+```{r}
+reg.data <- d
+
+reg.data$mhv.growth[ reg.data$mhv.growth > 200 ] <- NA
+reg.data$p.white <- log10( reg.data$p.white + 1 )
+reg.data$p.prof <- log10( reg.data$p.prof + 1 )
+reg.data$p.vacant <- log10( reg.data$p.vacant + 1 )
+
+m1 <- lm( mhv.growth ~  p.white, data=reg.data )
+m2 <- lm( mhv.growth ~  p.prof, data=reg.data )
+m3 <- lm( mhv.growth ~  p.vacant, data=reg.data )
+m4 <- lm( mhv.growth ~  p.white + p.prof + p.vacant, data=reg.data )
+
+
+stargazer( m1, m2, m3, m4,
+           type=s.type, digits=2,
+           omit.stat = c("rsq","f") )
+
+```
+
+    The coefficients all change as do the standard errors, with the most dramatic increase being for p.prof, suggesting it is highly correlated with p.white.
+
+
+```{r}
+reg.data <- d
+
+reg.data$mhv.growth[ reg.data$mhv.growth > 200 ] <- NA
+reg.data$p.black <- log10( reg.data$p.black + 1 )
+reg.data$p.prof <- log10( reg.data$p.prof + 1 )
+reg.data$p.vacant <- log10( reg.data$p.vacant + 1 )
+
+m1 <- lm( mhv.growth ~  p.black, data=reg.data )
+m2 <- lm( mhv.growth ~  p.prof, data=reg.data )
+m3 <- lm( mhv.growth ~  p.vacant, data=reg.data )
+m4 <- lm( mhv.growth ~  p.black + p.prof + p.vacant, data=reg.data )
+
+
+stargazer( m1, m2, m3, m4,
+           type=s.type, digits=2,
+           omit.stat = c("rsq","f") )
+```
+
+    When I change ethnicity to p.black, the coefficients change, but not by as much as p.white, and the standard errors remain similar.   Residual standard errors remain very simliar across all variables.
+
+
+
+
+##Part 4 Is the relationship linear?
+
+```{r, eval=F}
+log.p.black <- log10( d$p.black + 1 )
+log.p.prof <- log10( d$p.prof + 1 )
+log.p.vacant <- log10( d$p.vacant + 1 )
+these <- sample( 1:length(log.p.black), 5000 )
+
+par( mfrow=c(1,2) )
+jplot( d$p.black[these], d$p.prof[these], 
+       lab1="Poverty Rate", lab2="Professional (prop)",
+       main="Raw Measures" )
+jplot( log.p.black[these], log.p.prof[these], 
+       lab1="Black ethnicity (prop)", lab2="Professional (prop)",
+       main="Log Transformed" )
+
+```
+
+
+```{r, eval=F}
+par( mfrow=c(1,3))
+
+jplot( log.p.black[these], reg.data$mhv.growth[these],
+       lab1="Percent Black", lab2="MHV growth" )
+jplot( log.p.prof[these], reg.data$mhv.growth[these],
+       lab1="Professional", lab2="MHV growth" )
+jplot( log.p.vacant[these], reg.data$mhv.growth[these],
+       lab1="Vacancy", lab2="MHV growth" )
+```
+
+##Part 4 Descriptives
+
+```{r}
+#descriptives
+
+df <- data.frame( MedianHomeValue2000=mhv.00, 
+                  MedianHomeValue2010=mhv.10, 
+                  MHV.Change.00.to.10=mhv.change,
+                  MHV.Growth.00.to.12=mhv.growth,
+                  PercentBlack00=d$p.black,
+                  PropProf00=d$p.prof,
+                  PropVacant00=d$p.vacant)
+
+stargazer( df, 
+           type=s.type, 
+           digits=0, 
+           summary.stat = c("min", "p25","median","mean","p75","max") )
+
+```
+
+    The typical change in home value between 2010-2012 is $60,047 (mean).
+    The largest change is $1,000,001
+    Growth measures the change over time and change can be dependent on demand.  Growth shows an increase in value, whereas change can show an increase or decrease.
+    
+
+```{r, eval=F}
+reg.data$mhv.change[ reg.data$mhv.change < 1000 ] <- NA
+fit=lm(mhv.growth ~ mhv.change, data=reg.data)
+
+plot(reg.data$mhv.change[these], reg.data$mhv.growth[these], xlim=c(0, 800000), ylim=c(0, 200), col="grey30", xlab="MHV Change", ylab="MHV Growth")
+abline(fit, col="firebrick")
+```
+
+
+```{r, eval=F}
+jplot( reg.data$mhv.change[these]/10000, reg.data$mhv.growth[these], 
+       lab1="MHV Change", lab2="MHV Growth")
+```
+
+    There are a large number of outliers so the correlation may not be as strong as indicated.  Obviously, if there is growth then change also exists, but if there is change there may not neccessarily be growth, there could be regression.
+    
+    
+##Part 5 Models
+
+```{r}
+m <- lm( mhv.00 ~  p.black + p.prof + p.vacant, data=reg.data )
+
+stargazer( m,
+           type=s.type, digits=2,
+           omit.stat = c("rsq","f") )
+```
+
+```{r}
+m <- lm( mhv.growth ~  p.black + p.prof + p.vacant, data=reg.data )
+
+stargazer( m,
+           type=s.type, digits=2,
+           omit.stat = c("rsq","f") )
+```
+
+    All variables are showing they can predict changes to home value in significant ways.
+    Results did not match predictions as I thought they would.  P.white was correlated with p.prof so I changed a variable to p.black.  Vacancy reate appears to have the largest impact on home value change and the least amount of impact on home value growth (it actually goes in the opposite direction, so we could say it has the largest impact on de-valuing home values).
+    
+
+##Part 6 Effect Sizes
+
+```{r}
+
+y <- mhv.growth
+m <- lm( y ~ p.black, data=reg.data )
+x.75 <- quantile( reg.data$p.black, p=0.75, na.rm = T )
+x.25 <- quantile( reg.data$p.black, p=0.25, na.rm = T )
+beta.x <- m$coefficients[2]  # position of x in the model 
+
+effect.size.x <- ( x.75 - x.25 ) * beta.x 
+print(effect.size.x)
+```
+
+
+```{r}
+y <- mhv.growth
+m <- lm( y ~ p.prof, data=reg.data )
+x.75 <- quantile( reg.data$p.prof, p=0.75, na.rm = T )
+x.25 <- quantile( reg.data$p.prof, p=0.25, na.rm = T )
+beta.x <- m$coefficients[2]  # position of x in the model 
+
+effect.size.x <- ( x.75 - x.25 ) * beta.x 
+print(effect.size.x)
+```
+
+
+```{r}
+y <- mhv.growth
+m <- lm( y ~ p.vacant, data=reg.data )
+x.75 <- quantile( reg.data$p.vacant, p=0.75, na.rm = T )
+x.25 <- quantile( reg.data$p.vacant, p=0.25, na.rm = T )
+beta.x <- m$coefficients[2]  # position of x in the model 
+
+effect.size.x <- ( x.75 - x.25 ) * beta.x 
+print(effect.size.x)
+```
+
